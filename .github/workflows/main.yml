@@ -30,6 +30,7 @@ jobs:
         run: |
           npm init -y
           npm install @capacitor/core@7 @capacitor/android@7
+          npm install @capacitor-community/speech-recognition@7.0.1
           npm install --save-dev @capacitor/cli@7
 
       - name: Preparar aplicativo
