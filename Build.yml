@@ -1,0 +1,50 @@
+
+name: Gerar APK Meu Financeiro
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar projeto
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Preparar aplicativo
+        run: |
+          npm init -y
+          npm install @capacitor/core@7 @capacitor/android@7
+          npm install --save-dev @capacitor/cli@7
+          mkdir -p www
+          cp index.html www/index.html
+          npx cap init "Meu Financeiro" "com.alvisx11.meufinanceiro" --web-dir www
+          npx cap add android
+          npx cap sync android
+
+      - name: Compilar APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Disponibilizar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Meu-Financeiro-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
