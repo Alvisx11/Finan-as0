@@ -271,7 +271,7 @@ function bub(r,h){hist.push({r,h});if(hist.length>40)hist.shift();const c=$('#jc
 function setVS(s){vs=s;const o=$('.orb');o&&(o.dataset.s=s,o.classList.toggle('on',s==='listening'));const h=$('#jhint');h&&(h.textContent={idle:'Toque no microfone para conversar',listening:'Ouvindo… pode falar',thinking:'Pensando…',speaking:'Falando… toque no círculo para interromper'}[s]);const q=$('#jeq');q&&(q.classList.toggle('on',s==='listening'||s==='speaking'),q.classList.toggle('sp',s==='speaking'));const a=$('#jint'),b=$('#jend');a&&a.classList.toggle('hidden',s!=='speaking');b&&b.classList.toggle('hidden',!conv)}
 const out=h=>{const o=$('#jout');if(o)o.innerHTML=`<div class="jc a">${h}</div>`};
 function say(t){if(!voiced||!window.speechSynthesis)return;let x=String(t).replace(/<[^>]+>/g,' ').replace(/&[a-z#0-9]+;/gi,' ');x=x.replace(/R\$\s*([\d.]+),(\d{2})/g,(_,i,c)=>i.replace(/\./g,'')+' reais'+(c==='00'?'':' e '+(+c)+' centavos'));x=x.replace(/(\d)\.(?=\d{3}(?:,|\b))/g,'$1');speak(x)}
-function stopRec(){const r=rc;if(!r)return;r.onresult=r.onerror=r.onend=r.onstart=null;try{r.abort()}catch(e){}recOn=false}
+function stopRec(){const r=rc;if(!r)return;rc=null;if(r.native){const p=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.SpeechRecognition;if(p)try{p.stop().catch(()=>{})}catch(e){}recOn=false;return}r.onresult=r.onerror=r.onend=r.onstart=null;try{r.abort()}catch(e){}recOn=false}
 function stopSpeak(){spk++;clearTimeout(spkT);try{window.speechSynthesis&&speechSynthesis.cancel()}catch(e){}speaking=false}
 function after(){speaking=false;if(conv)setTimeout(()=>{if(conv&&!speaking)startListen()},450);else setVS('idle')}
 function speak(text){if(!window.speechSynthesis||!text)return after();stopRec();stopSpeak();const my=++spk;speaking=true;setVS('speaking');
@@ -301,7 +301,18 @@ else if(loc)why='O arquivo está aberto direto do aparelho. Nesse modo o navegad
 else why='Libere o microfone para este site: toque no <b>🔒 cadeado</b> ao lado do endereço → <b>Permissões</b> → <b>Microfone</b> → <b>Permitir</b>.';
 out(`<b>🎙 Microfone indisponível</b>${code?` <span class="muted">(${safe(code)})</span>`:''}<div style="margin:8px 0 10px;line-height:1.6">${why}</div><div class="muted" style="margin-bottom:10px">Enquanto isso, digite no campo abaixo ou toque no 🎙 do <b>teclado</b> do celular para ditar.</div><button class="btn btn-green" data-a="mic">Tentar de novo</button>`);
 try{if(!micW){const p=await navigator.permissions.query({name:'microphone'});micW=true;p.onchange=()=>{if(p.state==='granted'&&$('#jt')&&!conv)startSession()}}}catch(e){}}
-function startListen(){if(!conv||speaking||recOn)return;const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return micHelp('sem suporte de voz neste navegador');
+async function startListen(){if(!conv||speaking||recOn)return;
+const NS=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.SpeechRecognition;
+if(NS){const my={native:true};rc=my;recOn=true;setVS('listening');try{
+let perm=await NS.checkPermissions();if(perm.speechRecognition!=='granted')perm=await NS.requestPermissions();
+if(rc!==my||!conv)return;if(perm.speechRecognition!=='granted'){rc=null;recOn=false;return micHelp('not-allowed')}
+const av=await NS.available();if(!av.available){rc=null;recOn=false;return micHelp('sem suporte de voz neste aparelho')}
+const result=await NS.start({language:'pt-BR',maxResults:1,partialResults:false,popup:false});
+if(rc!==my||!conv)return;rc=null;recOn=false;const phrase=(result.matches||[]).join(' ').trim();
+if(phrase){noSp=0;const j=$('#jt');j&&(j.value=phrase);return turn(phrase)}
+if(++noSp>=3)return endSession('Parei de ouvir por inatividade. Toque no microfone para continuar.');setTimeout(startListen,300);
+}catch(e){if(rc!==my)return;rc=null;recOn=false;const msg=String(e&&e.message||e||'').toLowerCase();if(msg.includes('no match')||msg.includes('no speech')||msg.includes('timeout')){if(++noSp>=3)return endSession('Parei de ouvir por inatividade. Toque no microfone para continuar.');setTimeout(startListen,300)}else micHelp('not-allowed')}return}
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return micHelp('sem suporte de voz neste navegador');
 stopRec();const my=rc=new SR();let got=false,last='',fatal=false;my.lang='pt-BR';my.interimResults=true;my.continuous=false;my.maxAlternatives=1;
 my.onstart=()=>{if(my===rc&&conv&&!speaking)setVS('listening')};
 my.onresult=e=>{if(my!==rc||speaking)return;let s='';for(const r of e.results)s+=r[0].transcript;last=s;const j=$('#jt');j&&(j.value=s);if(e.results[e.results.length-1].isFinal&&!got){got=true;noSp=0;turn(s)}};
@@ -310,7 +321,7 @@ my.onend=()=>{if(my!==rc)return;recOn=false;if(fatal||!conv)return;if(speaking||
 recOn=true;try{my.start()}catch(e){recOn=false;micHelp(e.name||'erro')}}
 async function turn(s){voiced=true;setVS('thinking');try{await handle(s)}catch(e){reply('Algo deu errado. Tente de novo.')}if(conv&&!speaking){setVS('listening');startListen()}}
 async function askAI(text){setVS('thinking');try{const r=await fetch(AI_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,history:hist.slice(-20).map(m=>({role:m.r==='u'?'user':'assistant',content:m.h.replace(/<[^>]+>/g,'')}))})}),d=await r.json();reply(safe(String(d.reply||'Não consegui responder agora.')))}catch(e){reply('Não consegui falar com a IA agora.')}}
-function startSession(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return micHelp('sem suporte de voz neste navegador');conv=true;noSp=0;const o=$('#jout');o&&(o.innerHTML='');
+function startSession(){const NS=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.SpeechRecognition,SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!NS&&!SR)return micHelp('sem suporte de voz neste navegador');conv=true;noSp=0;const o=$('#jout');o&&(o.innerHTML='');
 if(!tipd&&(['file:','content:'].includes(location.protocol)||!window.isSecureContext)){tipd=true;bub('a','ℹ️ Este arquivo está aberto direto do aparelho, então o navegador pode pedir o microfone a cada pergunta. Em um endereço https a permissão fica salva.')}
 setVS('listening');startListen()}
 function listen(){if(!conv)startSession();else if(speaking)interrupt();else endSession()}
